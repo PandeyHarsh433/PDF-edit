@@ -1,126 +1,116 @@
-# PDF Editor
+# PDF Edit
 
-Welcome to the PDF Editor application! This project is a web-based platform designed to facilitate the editing of PDF documents. The application comprises two main components:
-
-1. **Client**: The front-end interface built with modern web technologies.
-2. **Server**: The back-end service developed using Node.js and WebSocket for efficient real-time communication.
-
-## Table of Contents
-
-- [Features](#features)
-- [Technologies Used](#technologies-used)
-- [Prerequisites](#prerequisites)
-- [Installation](#installation)
-- [Usage](#usage)
-- [Screenshots](#screenshots)
-- [Contributing](#contributing)
-- [License](#license)
+A web application for splitting, merging, compressing, and converting PDF files, with a React client and an Express API that does the processing.
 
 ## Features
 
-- Upload and view PDF documents.
-- Edit text within PDF files.
-- Add annotations and comments.
-- Download the edited PDF.
+- **Split PDF**: extracts the pages you list (for example `1,3,5`) into separate one-page PDFs, returned together as a ZIP archive. Done on the server with `pdf-lib`; the ZIP is built with `jszip`.
+- **Merge PDF**: combines up to 10 PDFs, in upload order, into a single PDF. Done on the server with `pdf-lib`.
+- **Compress PDF**: copies all pages into a new document and saves it with object streams enabled (`pdf-lib`). This is structural re-saving only; images are not resampled, so the size reduction depends on the input file.
+- **PDF to Word**: extracts plain text with `pdf-parse` and writes it, one paragraph per line, into a `.docx` file with `docx`. Layout, images, and formatting are not preserved.
 
-## Technologies Used
+All processing happens on the server. The client uploads files and offers the result for download.
 
-- **Client**: Developed using modern web technologies to ensure responsiveness and compatibility across various devices.
-- **Server**: Built with Node.js, leveraging WebSocket for efficient real-time communication.
+## Tech Stack
 
-## Prerequisites
+- **Client**: React 18, TypeScript, Vite, React Router, Tailwind CSS, Framer Motion, axios, react-dropzone, react-toastify
+- **Server**: Node.js, Express 4, TypeScript, multer (in-memory uploads), pdf-lib, pdf-parse, docx, cors, dotenv
 
-Before you begin, ensure you have the following installed:
+## Architecture
 
-- [Node.js](https://nodejs.org/en/download/) (version 14.x or later)
-- [npm](https://www.npmjs.com/get-npm) (Node package manager)
+1. The user picks a tool in the client and drops file(s) into an upload area that accepts `.pdf` files only (one file, or up to 10 for merge).
+2. The `usePDFProcessor` hook sends the files as `multipart/form-data` to `${VITE_SERVER_URL}/api/pdf/<operation>` with axios and tracks upload progress.
+3. On the server, multer keeps uploads in memory (nothing is written to disk). For split, compress, and convert, the `validatePDF` middleware rejects requests with no file or with a MIME type other than `application/pdf`. The merge route does not run this middleware.
+4. The controller calls the matching function in `utils/pdfUtils.ts` and sends the result back as a binary response (PDF, ZIP, or DOCX).
+5. The client wraps the response in a Blob and triggers a download with a timestamped filename.
 
-## Installation
+Error handling: each controller catches its own errors and responds with HTTP 400 for missing or invalid input (for example, a malformed page list) or HTTP 500 with a JSON body `{ success, message, error }` for processing failures. A global error handler in `middlewares/errorHandler.ts` catches anything else. On the client, failed requests set an error state on the page.
 
-Follow these steps to set up the project locally:
+Limits: the client UI states a 100 MB maximum, but the server does not configure a multer size limit, so it is not enforced server-side.
 
-1. **Clone the repository**:
+Database: `server/src/config/db.ts` contains a MongoDB (Mongoose) connection helper, but the call to it in `server.ts` is commented out. The application does not use a database.
 
-   ```bash
-   git clone https://github.com/IsThisHarsh/pdf-editor.git
-   ```
+## Project Structure
 
-2. **Navigate to the project directory**:
+```
+pdf-edit/
+├── client/
+│   └── src/
+│       ├── components/     # Header, Footer, FileUploader, progress UI, home page sections
+│       ├── hooks/
+│       │   └── usePDFProcessor.ts   # Upload, request, and download logic
+│       ├── pages/          # Home, SplitPDF, MergePDF, CompressPDF, PDFToWord
+│       └── App.tsx         # Routes
+└── server/
+    └── src/
+        ├── app.ts          # Express app, CORS, routes, error handler
+        ├── server.ts       # Entry point
+        ├── config/db.ts    # MongoDB helper (currently not called)
+        ├── controllers/pdfController.ts
+        ├── middlewares/    # validatePdf, validatePdfBuffer, errorHandler
+        ├── routes/pdfRoutes.ts
+        └── utils/          # pdfUtils (PDF operations), asyncHandler
+```
 
-   ```bash
-   cd pdf-editor
-   ```
+## Getting Started
 
-3. **Install dependencies for both client and server**:
+### Prerequisites
 
-   ```bash
-   # Install server dependencies
-   cd server
-   npm install
+- Node.js 18 or later
+- npm
 
-   # Install client dependencies
-   cd ../client
-   npm install
-   ```
+### Environment Variables
 
-## Usage
+**Server** (`server/.env`, optional):
 
-To start the application:
+```
+PORT=5000
+# Only needed if the MongoDB connection in server.ts is re-enabled
+MONGO_URI=mongodb://<host>:<port>/<database>
+```
 
-1. **Start the server**:
+`PORT` defaults to `5000`.
 
-   ```bash
-   cd server
-   npm start
-   ```
+**Client** (`client/.env`):
 
-   The server will initialize and listen for incoming connections.
+```
+VITE_SERVER_URL=http://localhost:5000
+```
 
-2. **Start the client**:
+This is the base URL of the API, without a trailing slash.
 
-   ```bash
-   cd ../client
-   npm start
-   ```
+### Run the Server
 
-   This will launch the client interface, typically accessible at `http://localhost:3000`.
+```bash
+cd server
+npm install
+npm run dev        # development, runs src/server.ts with nodemon
+```
 
-3. **Access the application**:
+For a production build:
 
-   Open your web browser and navigate to `http://localhost:3000` to begin using the PDF Editor application.
+```bash
+npm run build      # compiles TypeScript to dist/
+npm start          # runs dist/server.js
+```
 
-## Screenshots
+### Run the Client
 
-Here are some screenshots showcasing the PDF Editor application:
+```bash
+cd client
+npm install
+npm run dev        # Vite dev server, http://localhost:5173 by default
+```
 
-1. **Upload Screen**:
+Other scripts: `npm run build`, `npm run preview`, `npm run lint`.
 
-   ![Upload Screen](screenshots/upload.png)
+## API Endpoints
 
-2. **Editing Interface**:
+All endpoints accept `multipart/form-data` and are mounted under `/api/pdf`.
 
-   ![Editing Interface](screenshots/edit.png)
-
-3. **Download Option**:
-
-   ![Download Option](screenshots/download.png)
-
-*Note: Replace the placeholder paths with the actual paths to your screenshot images.*
-
-## Contributing
-
-We welcome contributions to enhance the PDF Editor application. To contribute:
-
-1. Fork the repository.
-2. Create a new branch: `git checkout -b feature/YourFeature`.
-3. Make your changes and commit them: `git commit -m 'Add new feature'`.
-4. Push to the branch: `git push origin feature/YourFeature`.
-5. Open a pull request detailing your changes.
-
-## License
-
-This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for more details.
-
----
-
-Thank you for using PDF Editor! If you encounter any issues or have suggestions, please open an issue in the repository. 
+| Method | Path               | Purpose                                                                                   |
+|--------|--------------------|-------------------------------------------------------------------------------------------|
+| POST   | `/api/pdf/split`   | Field `file` (PDF) and `pages` (comma-separated page numbers). Returns a ZIP of one-page PDFs. |
+| POST   | `/api/pdf/merge`   | Field `files` (up to 10 PDFs). Returns the merged PDF.                                    |
+| POST   | `/api/pdf/compress`| Field `file` (PDF). Returns the re-saved PDF.                                             |
+| POST   | `/api/pdf/convert` | Field `file` (PDF). Returns a `.docx` containing the extracted text.                      |
